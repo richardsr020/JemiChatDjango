@@ -1,0 +1,88 @@
+{% extends 'chat/base.html' %}
+{% load chat_extras %}
+{% block content %}
+<div class="profile-container modern-profile">
+    <div class="profile-header">
+        <div class="profile-avatar enhanced">
+            {% if user.profile_picture %}
+                <button
+                    type="button"
+                    class="image-thumb-btn"
+                    data-image-src="/uploads/{{ user.profile_picture|urlencode }}"
+                    data-image-name="Photo de profil {{ user.username }}"
+                    data-download-url="/uploads/{{ user.profile_picture|urlencode }}"
+                    title="Agrandir la photo"
+                    style="border:0;background:transparent;padding:0;cursor:pointer;"
+                >
+                    <img src="/uploads/{{ user.profile_picture|urlencode }}" alt="Photo de profil">
+                </button>
+            {% else %}
+                <span class="avatar-fallback">{{ user.username|firstchar }}</span>
+            {% endif %}
+        </div>
+        <div class="profile-header-meta">
+            <h1>{% if is_own_profile %}Mon profil{% else %}Profil de {{ user.username }}{% endif %}</h1>
+            <p class="profile-subtitle">Membre depuis {{ user.created_at|to_dmy }}</p>
+            <p class="user-meta">Rôle: {% if user.role == 'super_admin' %}SUPER ADMIN{% elif user.role == 'admin' %}ADMIN{% else %}UTILISATEUR{% endif %}</p>
+        </div>
+    </div>
+
+    {% if is_own_profile %}
+    <form method="POST" enctype="multipart/form-data" class="profile-picture-form">
+        {% csrf_token %}
+        <input type="hidden" name="update_profile_picture" value="1">
+        <input type="file" name="profile_picture" id="profilePictureInput" accept="image/*" required>
+        <button type="submit" class="btn-primary">Mettre à jour la photo</button>
+    </form>
+    {% endif %}
+
+    <div class="profile-grid">
+        <div class="stats-card">
+            <h3>Statistiques</h3>
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <div class="stat-number">{{ stats.file_count|default:0 }}</div>
+                    <div class="stat-label">Pièces jointes envoyées</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number">{{ stats.total_size|filesize }}</div>
+                    <div class="stat-label">Espace utilisé</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="recent-files">
+        <h3>{% if is_own_profile %}Mes pièces jointes{% else %}Pièces jointes de {{ user.username }}{% endif %}</h3>
+        {% if not user_files %}
+            <div class="empty-state">Aucune pièce jointe envoyée.</div>
+        {% else %}
+            <div class="files-list-mini profile-attachments">
+                {% for file in user_files %}
+                    <div class="file-item-mini attachment-item">
+                        {% if file.file_type|startswith:'image/' %}
+                            <img src="{% url 'view_file_php' %}?id={{ file.id }}" alt="{{ file.original_name }}" class="attachment-thumb" loading="lazy">
+                        {% else %}
+                            <div class="file-icon-mini">📁</div>
+                        {% endif %}
+                        <div class="file-info-mini">
+                            <strong>{{ file.original_name }}</strong>
+                            <div class="file-meta-mini">{{ file.file_size|filesize }} • {{ file.upload_date|to_dmy_hm }}</div>
+                        </div>
+                        <a href="{% url 'download_php' %}?id={{ file.id }}" class="download-btn" title="Télécharger">⬇</a>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<div id="imagePreviewModal" class="image-preview-modal hidden" role="dialog" aria-modal="true">
+    <div class="image-preview-backdrop"></div>
+    <div class="image-preview-content">
+        <button type="button" id="imagePreviewClose" class="image-preview-close" aria-label="Fermer">×</button>
+        <img id="imagePreviewFull" src="" alt="">
+        <a id="imagePreviewDownload" href="#" class="image-preview-download" title="Télécharger">⬇</a>
+    </div>
+</div>
+{% endblock %}

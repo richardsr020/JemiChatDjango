@@ -1,0 +1,176 @@
+{% extends 'chat/base.html' %}
+{% load chat_extras %}
+{% block content %}
+<div id="chatWelcomeLoader" class="chat-welcome-loader hidden" aria-hidden="true">
+    <div class="chat-welcome-center"><h1 class="brand-gradient">JemiChat</h1><p class="brand-gradient">Welcome</p></div>
+</div>
+
+<div class="chat-layout">
+    <aside class="conversations-panel" id="conversationDrawer">
+        <div class="conversations-top">
+            <h1>Conversations</h1>
+            <span class="online-indicator">{{ online_count }} en ligne</span>
+        </div>
+
+        <form method="POST" class="inbox-launcher">
+            {% csrf_token %}
+            <input type="hidden" name="create_inbox" value="1">
+            <select name="target_user_id" {% if is_restricted %}disabled{% endif %} required>
+                <option value="">Nouvelle conversation privée</option>
+                {% for candidate in inbox_candidates %}
+                    <option value="{{ candidate.id }}">{{ candidate.username }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" title="Créer une inbox" aria-label="Créer une inbox" {% if is_restricted %}disabled{% endif %}>➕</button>
+        </form>
+
+        <div class="conversation-list">
+            <div class="skeleton-list" id="conversationSkeleton">
+                <div class="skeleton-line"></div><div class="skeleton-line"></div><div class="skeleton-line"></div>
+            </div>
+
+            {% for conversation in conversations %}
+                <a class="conversation-item {% if conversation.id == active_conversation_id %}active{% endif %}" href="{% url 'index_php' %}?conversation_id={{ conversation.id }}">
+                    <div class="conversation-avatar">{% if conversation.type == 'group' %}G{% else %}I{% endif %}</div>
+                    <div class="conversation-meta">
+                        <div class="conversation-title-row">
+                            <strong>{{ conversation.display_name|default:'Conversation' }}</strong>
+                            <span class="conversation-type">{% if conversation.type == 'group' %}Groupe{% else %}Inbox{% endif %}</span>
+                        </div>
+                        <span class="conversation-preview">
+                            {% if conversation.last_message %}{{ conversation.last_message }}
+                            {% elif conversation.last_file_id %}Fichier partagé
+                            {% else %}Aucun message pour le moment{% endif %}
+                        </span>
+                    </div>
+                </a>
+            {% endfor %}
+        </div>
+    </aside>
+
+    <div id="conversationDrawerBackdrop" class="drawer-backdrop"></div>
+
+    <section class="chat-panel">
+        <div class="chat-header-modern">
+            <h2>{{ active_conversation.display_name|default:'Conversation' }}</h2>
+            <div class="chat-header-actions">
+                <button type="button" class="drawer-toggle-btn" id="conversationDrawerToggle" title="Afficher les conversations" aria-label="Afficher les conversations">☰</button>
+                <span class="chat-type-badge">{% if active_conversation.type == 'group' %}Groupe{% else %}Inbox{% endif %}</span>
+            </div>
+        </div>
+
+        {% if is_restricted and moderation_reason %}<div class="moderation-banner">{{ moderation_reason }}</div>{% endif %}
+
+        <div class="chat-messages" id="chatMessages">
+            {% for m in chat_messages %}
+                {% with day=m.created_at|day_label %}
+                    {% ifchanged day %}
+                        <div class="message-day-separator"><span>{{ day }}</span></div>
+                    {% endifchanged %}
+                {% endwith %}
+
+                <div class="message {% if m.user_id == session_user_id %}own-message{% endif %}">
+                    <div class="message-avatar">
+                        {% if m.profile_picture %}
+                            <img src="/uploads/{{ m.profile_picture|urlencode }}" alt="Photo profil">
+                        {% else %}
+                            <span class="avatar-fallback">{{ m.username|firstchar }}</span>
+                        {% endif %}
+                    </div>
+                    <div class="message-content">
+                        <div class="message-display">
+                            {% if m.message %}
+                                <div class="message-text"><div class="message-text-content">{{ m.message|linebreaksbr }}</div></div>
+                            {% endif %}
+
+                            {% if m.file_id %}
+                                {% if m.file_type|startswith:'image/' %}
+                                    <div class="message-file image-file">
+                                        <button type="button" class="image-thumb-btn" data-image-src="{% url 'view_file_php' %}?id={{ m.file_id }}" data-image-name="{{ m.original_name }}" data-download-url="{% url 'download_php' %}?id={{ m.file_id }}" title="Agrandir l'image">
+                                            <img src="{% url 'view_file_php' %}?id={{ m.file_id }}" alt="{{ m.original_name }}" class="image-thumb" loading="lazy">
+                                        </button>
+                                        <a href="{% url 'download_php' %}?id={{ m.file_id }}" class="download-btn" title="Télécharger">⬇</a>
+                                    </div>
+                                {% else %}
+                                    <div class="message-file"><div class="file-icon">📁</div><a href="{% url 'download_php' %}?id={{ m.file_id }}" class="download-btn" title="Télécharger">⬇</a></div>
+                                {% endif %}
+                            {% endif %}
+
+                            <div class="message-meta-time"><span class="message-time">{{ m.created_at|to_hm }}</span></div>
+                        </div>
+
+                        {% if m.user_id == session_user_id %}
+                            <div class="message-own-controls">
+                                <button type="button" class="message-action-btn message-edit-btn">✏️ Modifier</button>
+                                <form action="{% url 'delete_message_php' %}" method="POST" class="message-delete-form">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="chat_csrf_token" value="{{ chat_csrf_token }}">
+                                    <input type="hidden" name="conversation_id" value="{{ active_conversation_id }}">
+                                    <input type="hidden" name="message_id" value="{{ m.id }}">
+                                    <button type="submit" class="message-action-btn danger">🗑 Supprimer</button>
+                                </form>
+                            </div>
+
+                            <form action="{% url 'edit_message_php' %}" method="POST" class="message-edit-form is-hidden">
+                                {% csrf_token %}
+                                <input type="hidden" name="chat_csrf_token" value="{{ chat_csrf_token }}">
+                                <input type="hidden" name="conversation_id" value="{{ active_conversation_id }}">
+                                <input type="hidden" name="message_id" value="{{ m.id }}">
+                                <textarea name="message" rows="2" maxlength="5000" required>{{ m.message }}</textarea>
+                                <div class="message-edit-actions">
+                                    <button type="submit" class="message-action-btn save">Enregistrer</button>
+                                    <button type="button" class="message-action-btn message-cancel-edit">Annuler</button>
+                                </div>
+                            </form>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    </section>
+</div>
+
+{% if not is_restricted %}
+<button id="floatingComposeBtn" class="floating-compose-btn" type="button" aria-label="Ouvrir le composeur">✎</button>
+<div id="composerModal" class="composer-modal hidden" role="dialog" aria-modal="true">
+    <div class="composer-backdrop"></div>
+    <div class="composer-glass">
+        <button class="composer-close" id="composerCloseBtn" type="button" aria-label="Fermer">×</button>
+        <form action="{% url 'send_message_php' %}" method="POST" enctype="multipart/form-data" class="composer-form" id="chatForm">
+            {% csrf_token %}
+            <input type="hidden" name="conversation_id" value="{{ active_conversation_id }}" id="conversationIdInput">
+            <input type="hidden" name="chat_csrf_token" value="{{ chat_csrf_token }}">
+            <textarea name="message" id="messageInput" placeholder="Écrire un message..." class="composer-input" rows="3"></textarea>
+
+            <div class="composer-actions">
+                <button type="button" class="composer-icon-btn" id="emojiToggleBtn" title="Ajouter un emoji">😊</button>
+                <input type="file" name="file" id="fileInput" class="file-input" hidden>
+                <label for="fileInput" class="composer-icon-btn" title="Ajouter une pièce jointe">📎</label>
+                <button type="submit" class="composer-icon-btn send" title="Envoyer">➤</button>
+            </div>
+
+            <div id="emojiPicker" class="emoji-picker is-hidden" aria-label="Sélecteur d'emojis">
+                {% for emoji in emojis %}
+                    <button type="button" class="emoji-item" data-emoji="{{ emoji }}">{{ emoji }}</button>
+                {% endfor %}
+            </div>
+
+            <div class="composer-ephemeral">
+                <input type="checkbox" name="ephemeral_week" id="ephemeralWeek" value="1">
+                <label for="ephemeralWeek">Message éphémère (7 jours)</label>
+            </div>
+            <div id="filePreviewContainer"></div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+<div id="imagePreviewModal" class="image-preview-modal hidden" role="dialog" aria-modal="true">
+    <div class="image-preview-backdrop"></div>
+    <div class="image-preview-content">
+        <button type="button" id="imagePreviewClose" class="image-preview-close" aria-label="Fermer">×</button>
+        <img id="imagePreviewFull" src="" alt="">
+        <a id="imagePreviewDownload" href="#" class="image-preview-download" title="Télécharger">⬇</a>
+    </div>
+</div>
+{% endblock %}

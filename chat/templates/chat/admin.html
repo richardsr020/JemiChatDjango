@@ -1,0 +1,271 @@
+{% extends 'chat/base.html' %}
+{% load chat_extras %}
+{% block content %}
+<div class="admin-dashboard">
+    <div class="admin-header">
+        <h1 class="admin-title">Dashboard Administrateur</h1>
+        <p class="admin-subtitle">Gestion complète des utilisateurs, rôles et groupes privés</p>
+    </div>
+
+    <div class="admin-nav">
+        <a href="#create-user" class="nav-btn">Créer utilisateur</a>
+        <a href="#groups" class="nav-btn">Groupes</a>
+        <a href="#users" class="nav-btn active">Gérer utilisateurs</a>
+        <a href="#logs" class="nav-btn">Logs admin</a>
+        <a href="{% url 'index_php' %}" class="nav-btn">Retour chat</a>
+    </div>
+
+    <div class="stats-grid admin-user-stats">
+        <div class="stat-card"><div class="stat-icon">👥</div><div class="stat-content"><span class="stat-number">{{ stats.total_users }}</span><span class="stat-label">Utilisateurs</span></div></div>
+        <div class="stat-card"><div class="stat-icon">🛡️</div><div class="stat-content"><span class="stat-number">{{ stats.admin_count }}</span><span class="stat-label">Administrateurs</span></div></div>
+        <div class="stat-card"><div class="stat-icon">⛔</div><div class="stat-content"><span class="stat-number">{{ stats.blocked_count }}</span><span class="stat-label">Comptes bloqués</span></div></div>
+        <div class="stat-card"><div class="stat-icon">⏱️</div><div class="stat-content"><span class="stat-number">{{ stats.sanctioned_count }}</span><span class="stat-label">Sanctions actives</span></div></div>
+    </div>
+
+    <div class="admin-section" id="create-user">
+        <div class="section-header"><div class="section-icon">➕</div><h2 class="section-title">Créer un utilisateur</h2></div>
+        <form method="POST" class="admin-create-form">
+            {% csrf_token %}
+            <input type="hidden" name="csrf_token" value="{{ admin_csrf_token }}">
+            <input type="hidden" name="admin_action" value="create_user">
+            <input type="text" name="create_username" placeholder="Nom d'utilisateur" required>
+            <input type="email" name="create_email" placeholder="Email (optionnel)">
+            <input type="password" name="create_password" placeholder="Mot de passe" minlength="6" required>
+            <select name="create_role" class="role-select">
+                <option value="user">Utilisateur</option>
+                {% if current_is_super_admin %}<option value="admin">Administrateur</option>{% endif %}
+            </select>
+            <button type="submit" class="btn">Créer</button>
+        </form>
+        {% if not current_is_super_admin %}<p class="user-meta" style="margin-top:.6rem;">Seul le super_admin peut créer un autre administrateur.</p>{% endif %}
+    </div>
+
+    <div class="admin-section" id="groups">
+        <div class="section-header"><div class="section-icon">👥</div><h2 class="section-title">Groupes privés</h2></div>
+
+        <div class="profile-grid" style="gap:1rem;">
+            <div class="stats-card">
+                <h3>Créer un groupe</h3>
+                <form method="GET" class="admin-filter-form" style="margin-bottom:.7rem;">
+                    <input type="text" name="group_user_q" value="{{ group_user_q }}" placeholder="Rechercher des utilisateurs par nom">
+                    <button type="submit" class="btn">Rechercher</button>
+                </form>
+
+                <form method="POST" class="admin-create-form">
+                    {% csrf_token %}
+                    <input type="hidden" name="csrf_token" value="{{ admin_csrf_token }}">
+                    <input type="hidden" name="admin_action" value="create_group">
+                    <input type="text" name="group_name" placeholder="Nom du groupe" required>
+
+                    {% if group_create_candidates %}
+                        <div class="logs-container" style="max-height:200px;overflow:auto;">
+                            {% for u in group_create_candidates %}
+                                <label class="log-entry" style="display:flex;align-items:center;gap:.5rem;">
+                                    <input type="checkbox" name="member_ids" value="{{ u.id }}">
+                                    <span>{{ u.username }}</span>
+                                    <small class="badge {% if u.role == 'user' %}badge-user{% else %}badge-admin{% endif %}">{{ u.role|upper }}</small>
+                                </label>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <p class="user-meta">Fais une recherche pour sélectionner des membres.</p>
+                    {% endif %}
+
+                    <button type="submit" class="btn">Créer le groupe</button>
+                </form>
+            </div>
+
+            <div class="stats-card">
+                <h3>Ajouter des membres à un groupe</h3>
+                <form method="GET" class="admin-filter-form" style="margin-bottom:.7rem;">
+                    <input type="text" name="group_add_q" value="{{ group_add_q }}" placeholder="Rechercher des utilisateurs à ajouter">
+                    <button type="submit" class="btn">Rechercher</button>
+                </form>
+
+                <form method="POST" class="admin-create-form">
+                    {% csrf_token %}
+                    <input type="hidden" name="csrf_token" value="{{ admin_csrf_token }}">
+                    <input type="hidden" name="admin_action" value="add_group_members">
+                    <select name="group_id" class="role-select" required>
+                        <option value="">Choisir un groupe</option>
+                        {% for g in groups %}
+                            <option value="{{ g.id }}">{{ g.name }} ({{ g.member_count }} membre{{ g.member_count|pluralize }})</option>
+                        {% endfor %}
+                    </select>
+
+                    {% if group_add_candidates %}
+                        <div class="logs-container" style="max-height:200px;overflow:auto;">
+                            {% for u in group_add_candidates %}
+                                <label class="log-entry" style="display:flex;align-items:center;gap:.5rem;">
+                                    <input type="checkbox" name="member_ids" value="{{ u.id }}">
+                                    <span>{{ u.username }}</span>
+                                    <small class="badge {% if u.role == 'user' %}badge-user{% else %}badge-admin{% endif %}">{{ u.role|upper }}</small>
+                                </label>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <p class="user-meta">Fais une recherche pour sélectionner des membres.</p>
+                    {% endif %}
+
+                    <button type="submit" class="btn">Ajouter au groupe</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="recent-files" style="margin-top:1rem;">
+            <h3>Groupes existants</h3>
+            {% if not groups %}
+                <div class="empty-state">Aucun groupe privé pour le moment.</div>
+            {% else %}
+                <div class="files-list-mini">
+                    {% for g in groups %}
+                        <div class="file-item-mini">
+                            <div class="file-icon-mini">👥</div>
+                            <div class="file-info-mini">
+                                <strong>{{ g.name }}</strong>
+                                <div class="file-meta-mini">Créé par {{ g.created_by_name }} • {{ g.member_count }} membre{{ g.member_count|pluralize }} • {{ g.created_at|to_dmy_hm }}</div>
+                            </div>
+                            <a href="{% url 'index_php' %}?conversation_id={{ g.id }}" class="download-btn" title="Ouvrir">➜</a>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="admin-section" id="users">
+        <div class="section-header"><div class="section-icon">🧭</div><h2 class="section-title">Recherche et filtres</h2></div>
+        <form method="GET" class="admin-filter-form">
+            <input type="text" name="q" value="{{ filters.q }}" placeholder="Rechercher username ou email">
+            <select name="role" class="role-select">
+                <option value="all" {% if filters.role == 'all' %}selected{% endif %}>Tous les rôles</option>
+                <option value="admin" {% if filters.role == 'admin' %}selected{% endif %}>Admins</option>
+                <option value="user" {% if filters.role == 'user' %}selected{% endif %}>Utilisateurs</option>
+            </select>
+            <select name="status" class="role-select">
+                <option value="all" {% if filters.status == 'all' %}selected{% endif %}>Tous les statuts</option>
+                <option value="active" {% if filters.status == 'active' %}selected{% endif %}>Actifs</option>
+                <option value="blocked" {% if filters.status == 'blocked' %}selected{% endif %}>Bloqués</option>
+                <option value="sanctioned" {% if filters.status == 'sanctioned' %}selected{% endif %}>Sanctionnés</option>
+            </select>
+            <select name="sort" class="role-select">
+                <option value="created_desc" {% if filters.sort == 'created_desc' %}selected{% endif %}>Récents d'abord</option>
+                <option value="created_asc" {% if filters.sort == 'created_asc' %}selected{% endif %}>Anciens d'abord</option>
+                <option value="username_asc" {% if filters.sort == 'username_asc' %}selected{% endif %}>Nom A-Z</option>
+                <option value="username_desc" {% if filters.sort == 'username_desc' %}selected{% endif %}>Nom Z-A</option>
+            </select>
+            <select name="per_page" class="role-select">
+                <option value="12" {% if filters.per_page == 12 %}selected{% endif %}>12 / page</option>
+                <option value="24" {% if filters.per_page == 24 %}selected{% endif %}>24 / page</option>
+                <option value="50" {% if filters.per_page == 50 %}selected{% endif %}>50 / page</option>
+            </select>
+            <button type="submit" class="btn">Filtrer</button>
+            <a href="{% url 'admin_php' %}" class="nav-btn">Réinitialiser</a>
+        </form>
+        <p class="user-meta" style="margin-top: .75rem;">{{ total_users_filtered }} résultat(s) trouvé(s)</p>
+    </div>
+
+    <div class="admin-section">
+        <div class="section-header"><div class="section-icon">👤</div><h2 class="section-title">Gestion des utilisateurs</h2></div>
+        <div class="users-container">
+            {% if not users %}<div class="admin-empty">Aucun utilisateur trouvé avec ces filtres.</div>{% endif %}
+            {% for user in users %}
+                <div class="user-card">
+                    <div class="user-info">
+                        <div class="user-avatar">{% if user.profile_picture %}<img src="/uploads/{{ user.profile_picture|urlencode }}" alt="Photo profil">{% else %}{{ user.username|firstchar }}{% endif %}</div>
+                        <div class="user-details">
+                            <span class="user-name">{{ user.username }}
+                                <span class="badge {% if user.role == 'user' %}badge-user{% else %}badge-admin{% endif %}">{% if user.role == 'super_admin' %}SUPER ADMIN{% elif user.role == 'admin' %}ADMIN{% else %}UTILISATEUR{% endif %}</span>
+                                {% if user.is_blocked %}<span class="badge badge-blocked">BLOQUÉ</span>{% elif user.sanctioned_until %}<span class="badge badge-sanction">SANCTION</span>{% endif %}
+                            </span>
+                            <span class="user-email">{{ user.email }}</span>
+                            <span class="user-meta">Inscrit le {{ user.created_at|to_dmy_hm }}</span>
+                            <span class="user-meta">Messages: {{ user.msg_count }} | Fichiers: {{ user.file_count }}</span>
+                            {% if user.sanctioned_until %}<span class="user-meta">Sanction jusqu'au {{ user.sanctioned_until|to_dmy_hm }}</span>{% endif %}
+                            {% if user.sanction_reason %}<span class="user-meta">Motif: {{ user.sanction_reason }}</span>{% endif %}
+                        </div>
+                    </div>
+
+                    {% if user.id != session_user_id %}
+                    <div class="user-actions user-action-grid">
+                        <a href="{% url 'profile_php' %}?user_id={{ user.id }}" class="btn btn-sm">Voir profil</a>
+
+                        <form method="POST" class="role-form inline-form">
+                            {% csrf_token %}
+                            <input type="hidden" name="csrf_token" value="{{ admin_csrf_token }}">
+                            <input type="hidden" name="admin_action" value="update_role">
+                            <input type="hidden" name="user_id" value="{{ user.id }}">
+                            <select name="role" class="role-select">
+                                <option value="user" {% if user.role == 'user' %}selected{% endif %}>Utilisateur</option>
+                                {% if current_is_super_admin %}<option value="admin" {% if user.role == 'admin' %}selected{% endif %}>Administrateur</option>{% endif %}
+                            </select>
+                            <button type="submit" class="btn btn-sm">Mettre à jour rôle</button>
+                        </form>
+
+                        <form method="POST" class="role-form inline-form">
+                            {% csrf_token %}
+                            <input type="hidden" name="csrf_token" value="{{ admin_csrf_token }}">
+                            <input type="hidden" name="admin_action" value="{% if user.is_blocked %}unblock_user{% else %}block_user{% endif %}">
+                            <input type="hidden" name="user_id" value="{{ user.id }}">
+                            <input type="text" name="reason" placeholder="Motif (optionnel)">
+                            <button type="submit" class="btn btn-sm {% if not user.is_blocked %}btn-danger{% endif %}">{% if user.is_blocked %}Débloquer{% else %}Bloquer{% endif %}</button>
+                        </form>
+
+                        <form method="POST" class="role-form inline-form">
+                            {% csrf_token %}
+                            <input type="hidden" name="csrf_token" value="{{ admin_csrf_token }}">
+                            <input type="hidden" name="admin_action" value="sanction_user">
+                            <input type="hidden" name="user_id" value="{{ user.id }}">
+                            <input type="number" name="duration_hours" min="1" max="720" value="24" style="max-width:95px;">
+                            <input type="text" name="reason" placeholder="Motif sanction">
+                            <button type="submit" class="btn btn-sm">Sanctionner</button>
+                        </form>
+
+                        <form method="POST" class="role-form inline-form">
+                            {% csrf_token %}
+                            <input type="hidden" name="csrf_token" value="{{ admin_csrf_token }}">
+                            <input type="hidden" name="admin_action" value="clear_sanction">
+                            <input type="hidden" name="user_id" value="{{ user.id }}">
+                            <button type="submit" class="btn btn-sm">Lever sanction</button>
+                        </form>
+
+                        <form method="POST" class="role-form inline-form">
+                            {% csrf_token %}
+                            <input type="hidden" name="csrf_token" value="{{ admin_csrf_token }}">
+                            <input type="hidden" name="admin_action" value="reset_password">
+                            <input type="hidden" name="user_id" value="{{ user.id }}">
+                            <input type="password" name="new_password" minlength="6" placeholder="Nouveau mot de passe" required>
+                            <button type="submit" class="btn btn-sm">Reset mot de passe</button>
+                        </form>
+
+                        <form method="POST" class="role-form inline-form">
+                            {% csrf_token %}
+                            <input type="hidden" name="csrf_token" value="{{ admin_csrf_token }}">
+                            <input type="hidden" name="admin_action" value="delete_user">
+                            <input type="hidden" name="user_id" value="{{ user.id }}">
+                            <button type="submit" class="btn btn-danger btn-sm">Supprimer</button>
+                        </form>
+                    </div>
+                    {% else %}
+                        <span class="current-user">Votre compte</span>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="admin-section" id="logs">
+        <div class="section-header"><div class="section-icon">📋</div><h2 class="section-title">Logs d'administration</h2></div>
+        <div class="logs-container">
+            {% for log in logs %}
+                <div class="log-entry">
+                    <div class="log-header"><span class="log-admin">{{ log.admin_name }}</span><span class="log-time">{{ log.created_at|to_dmy_hm }}</span></div>
+                    <div class="log-content"><span class="log-action">{{ log.action }}</span>{% if log.details %}<span class="log-details">- {{ log.details }}</span>{% endif %}</div>
+                </div>
+            {% empty %}
+                <div class="admin-empty">Aucun log pour le moment.</div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}

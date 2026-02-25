@@ -1,0 +1,31 @@
+{% extends 'chat/base.html' %}
+{% block content %}
+<div class="auth-container modern-auth">
+    <div class="auth-card">
+        <div class="auth-header">
+            <h2 class="brand-gradient">Créer un compte</h2>
+            <p class="auth-subtitle">Accès instantané à JemiChat</p>
+        </div>
+
+        {% if error %}<div class="alert error">{{ error }}</div>{% endif %}
+
+        <form method="POST" class="auth-form clean-form">
+            {% csrf_token %}
+            <div class="clean-input-wrap">
+                <input type="text" id="username" name="username" value="{{ request.POST.username|default:'' }}" placeholder="Nom d'utilisateur" required>
+            </div>
+            <div class="clean-input-wrap with-eye">
+                <input type="password" id="password" name="password" placeholder="Mot de passe" required>
+                <button type="button" class="password-toggle modern-eye" data-target="password" aria-label="Afficher le mot de passe">👁</button>
+            </div>
+            <div class="clean-input-wrap with-eye">
+                <input type="password" id="confirm_password" name="confirm_password" placeholder="Confirmer le mot de passe" required>
+                <button type="button" class="password-toggle modern-eye" data-target="confirm_password" aria-label="Afficher le mot de passe">👁</button>
+            </div>
+            <button type="submit" class="btn-primary">S'inscrire</button>
+        </form>
+
+        <div class="auth-links"><p>Déjà inscrit ? <a href="{% url 'login_php' %}" class="auth-link">Connexion</a></p></div>
+    </div>
+</div>
+{% endblock %}

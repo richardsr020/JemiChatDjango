@@ -1,0 +1,53 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title|default:'JemiChat' }}</title>
+    <script>
+        (function () {
+            var stored = null;
+            try { stored = localStorage.getItem('jemichat_theme'); } catch (error) { stored = null; }
+            var theme = stored ? stored : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            document.documentElement.setAttribute('data-theme', theme);
+        })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'style.css' %}">
+</head>
+<body class="ui-preload" data-page="{{ page_name }}">
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-brand"><h2 class="brand-gradient">JemiChat</h2></div>
+            <div class="nav-menu">
+                {% if session_user_id %}
+                    <a href="{% url 'index_php' %}">Accueil</a>
+                    <a href="{% url 'profile_php' %}">Profil</a>
+                    {% if session_is_admin %}<a href="{% url 'admin_php' %}" class="admin-btn">Dashboard Admin</a>{% endif %}
+                    <span class="username">
+                        {{ session_username }}
+                        {% if session_is_admin %}
+                            <span class="badge admin-badge">{% if session_is_super_admin %}SUPER ADMIN{% else %}ADMIN{% endif %}</span>
+                        {% endif %}
+                    </span>
+                    <button id="themeToggleBtn" class="theme-toggle-btn" type="button" aria-label="Basculer le thème">◐</button>
+                    <a href="{% url 'logout_php' %}" class="logout-btn">Déconnexion</a>
+                {% else %}
+                    <a href="{% url 'login_php' %}">Connexion</a>
+                    <a href="{% url 'register_php' %}">Inscription</a>
+                    <button id="themeToggleBtn" class="theme-toggle-btn" type="button" aria-label="Basculer le thème">◐</button>
+                {% endif %}
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        {% block content %}{% endblock %}
+    </div>
+
+    <script src="{% static 'script.js' %}"></script>
+</body>
+</html>
