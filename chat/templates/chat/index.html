@@ -61,7 +61,13 @@
 
         {% if is_restricted and moderation_reason %}<div class="moderation-banner">{{ moderation_reason }}</div>{% endif %}
 
-        <div class="chat-messages" id="chatMessages">
+        <div
+            class="chat-messages"
+            id="chatMessages"
+            data-conversation-id="{{ active_conversation_id }}"
+            data-download-url-template="{% url 'download_php' %}?id=__ID__"
+            data-view-url-template="{% url 'view_file_php' %}?id=__ID__"
+        >
             {% for m in chat_messages %}
                 {% with day=m.created_at|day_label %}
                     {% ifchanged day %}
@@ -69,7 +75,7 @@
                     {% endifchanged %}
                 {% endwith %}
 
-                <div class="message {% if m.user_id == session_user_id %}own-message{% endif %}">
+                <div class="message {% if m.user_id == session_user_id %}own-message{% endif %}" data-message-id="{{ m.id }}">
                     <div class="message-avatar">
                         {% if m.profile_picture %}
                             <img src="/uploads/{{ m.profile_picture|urlencode }}" alt="Photo profil">

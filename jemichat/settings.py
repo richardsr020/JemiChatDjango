@@ -7,6 +7,8 @@ DEBUG = True
 ALLOWED_HOSTS = ['*']
 
 INSTALLED_APPS = [
+    'daphne',
+    'channels',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
@@ -24,6 +26,7 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = 'jemichat.urls'
+ASGI_APPLICATION = 'jemichat.asgi.application'
 
 TEMPLATES = [
     {
@@ -66,6 +69,12 @@ MEDIA_ROOT = BASE_DIR / 'uploads'
 SESSION_COOKIE_NAME = 'jemichat_sessionid'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'
+
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels.layers.InMemoryChannelLayer',
+    }
+}
 
 # PHP backend supported 100MB uploads.
 DATA_UPLOAD_MAX_MEMORY_SIZE = 120 * 1024 * 1024

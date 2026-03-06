@@ -5,6 +5,7 @@ Réimplémentation backend en **Python Django** pour conserver le frontend actue
 ## Ce qui a changé
 
 - Backend PHP remplacé par un backend Django.
+- Messagerie temps réel via **WebSocket** (Django Channels).
 - URLs backend conservées en `.php` pour rester compatibles avec le frontend:
   - `index.php`, `login.php`, `register.php`, `logout.php`
   - `send_message.php`, `upload.php`, `edit_message.php`, `delete_message.php`
@@ -37,6 +38,8 @@ http://localhost:8000/index.php
 - Les fichiers statiques existants (`style.css`, `script.js`) sont réutilisés.
 - Les uploads restent dans `uploads/`.
 - Authentification compatible avec les hashes mot de passe PHP (`bcrypt`, conversion `$2y$` -> `$2b$` côté vérification).
+- Les WebSockets passent par l'ASGI app (`jemichat/asgi.py`) et un consumer `chat/consumers.py`.
+- `CHANNEL_LAYERS` est configuré en mémoire (`InMemoryChannelLayer`) pour le dev local.
 
 ## Reset des donnees SQL
 

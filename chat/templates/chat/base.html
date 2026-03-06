@@ -18,7 +18,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{% static 'style.css' %}">
 </head>
-<body class="ui-preload" data-page="{{ page_name }}">
+<body class="ui-preload" data-page="{{ page_name }}" data-session-user-id="{{ session_user_id|default:'' }}">
     <nav class="navbar">
         <div class="nav-container">
             <div class="nav-brand"><h2 class="brand-gradient">JemiChat</h2></div>

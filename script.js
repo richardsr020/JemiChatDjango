@@ -22,6 +22,18 @@ class JemiChatUI {
         this.imagePreviewBackdrop = this.imagePreviewModal ? this.imagePreviewModal.querySelector('.image-preview-backdrop') : null;
         this.imagePreviewFull = document.getElementById('imagePreviewFull');
         this.imagePreviewDownload = document.getElementById('imagePreviewDownload');
+        this.chatMessages = document.getElementById('chatMessages');
+        this.sessionUserId = parseInt((this.body && this.body.dataset.sessionUserId) || '0', 10) || 0;
+        this.activeConversationId = this.chatMessages
+            ? parseInt(this.chatMessages.dataset.conversationId || '0', 10) || 0
+            : 0;
+        this.downloadUrlTemplate = this.chatMessages ? this.chatMessages.dataset.downloadUrlTemplate || '' : '';
+        this.viewUrlTemplate = this.chatMessages ? this.chatMessages.dataset.viewUrlTemplate || '' : '';
+        this.ws = null;
+        this.wsReady = false;
+        this.wsReconnectTimer = null;
+        this.wsReconnectDelayMs = 2000;
+        this.wsClosedByClient = false;
 
         this.dragState = {
             active: false,
@@ -45,6 +57,8 @@ class JemiChatUI {
         this.bindEmojiPicker();
         this.bindFileInput();
         this.bindFormValidation();
+        this.initRealtime();
+        this.bindRealtimeCleanup();
         this.scrollChatToBottom();
 
         window.setTimeout(() => {
@@ -214,6 +228,253 @@ class JemiChatUI {
                 this.imagePreviewFull.src = '';
             }
         }, 180);
+    }
+
+    initRealtime() {
+        if (this.page !== 'index' || !this.chatMessages || this.activeConversationId <= 0) {
+            return;
+        }
+        if (typeof WebSocket === 'undefined') {
+            return;
+        }
+        if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+            return;
+        }
+
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+        const wsUrl = `${wsProtocol}://${window.location.host}/ws/chat/${this.activeConversationId}/`;
+        this.ws = new WebSocket(wsUrl);
+        this.wsClosedByClient = false;
+
+        this.ws.addEventListener('open', () => {
+            this.wsReady = true;
+        });
+
+        this.ws.addEventListener('message', (event) => {
+            this.handleRealtimeMessage(event.data);
+        });
+
+        this.ws.addEventListener('close', () => {
+            this.wsReady = false;
+            this.ws = null;
+            if (!this.wsClosedByClient) {
+                this.scheduleRealtimeReconnect();
+            }
+        });
+
+        this.ws.addEventListener('error', () => {
+            this.wsReady = false;
+        });
+    }
+
+    scheduleRealtimeReconnect() {
+        if (this.wsReconnectTimer || this.page !== 'index') {
+            return;
+        }
+        this.wsReconnectTimer = window.setTimeout(() => {
+            this.wsReconnectTimer = null;
+            this.initRealtime();
+        }, this.wsReconnectDelayMs);
+    }
+
+    bindRealtimeCleanup() {
+        window.addEventListener('beforeunload', () => {
+            this.wsClosedByClient = true;
+            if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+                this.ws.close();
+            }
+        });
+    }
+
+    handleRealtimeMessage(rawPayload) {
+        let data = {};
+        try {
+            data = JSON.parse(rawPayload || '{}');
+        } catch (error) {
+            return;
+        }
+
+        const type = data.type || '';
+        const payload = data.payload || {};
+
+        if (type === 'message.created') {
+            this.upsertMessage(payload, false);
+            return;
+        }
+        if (type === 'message.updated') {
+            this.upsertMessage(payload, true);
+            return;
+        }
+        if (type === 'message.deleted') {
+            this.removeMessageById(payload.id);
+            return;
+        }
+        if (type === 'error') {
+            window.alert(data.error || "Erreur WebSocket.");
+        }
+    }
+
+    sendMessageViaWebSocket() {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.messageInput) {
+            return false;
+        }
+
+        const message = (this.messageInput.value || '').trim();
+        if (!message) {
+            return false;
+        }
+
+        const ephemeralCheckbox = document.getElementById('ephemeralWeek');
+        try {
+            this.ws.send(
+                JSON.stringify({
+                    action: 'send_message',
+                    message: message,
+                    ephemeral_week: !!(ephemeralCheckbox && ephemeralCheckbox.checked),
+                })
+            );
+        } catch (error) {
+            return false;
+        }
+
+        this.messageInput.value = '';
+        if (ephemeralCheckbox) {
+            ephemeralCheckbox.checked = false;
+        }
+        this.removeFilePreview();
+        this.closeComposer();
+        return true;
+    }
+
+    upsertMessage(message, onlyIfExists) {
+        const messageId = parseInt((message || {}).id || 0, 10) || 0;
+        if (!this.chatMessages || messageId <= 0) {
+            return;
+        }
+
+        const selector = `[data-message-id="${messageId}"]`;
+        const existing = this.chatMessages.querySelector(selector);
+        if (existing) {
+            this.patchExistingMessage(existing, message);
+            return;
+        }
+        if (onlyIfExists) {
+            return;
+        }
+
+        this.chatMessages.insertAdjacentHTML('beforeend', this.renderRealtimeMessageHtml(message));
+        this.scrollChatToBottom();
+    }
+
+    patchExistingMessage(messageElement, message) {
+        const content = messageElement.querySelector('.message-text-content');
+        const nextText = (message.message || '').trim();
+        if (content) {
+            content.innerHTML = this.escapeHtml(nextText).replace(/\n/g, '<br>');
+        } else if (nextText) {
+            const display = messageElement.querySelector('.message-display');
+            if (display) {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'message-text';
+                wrapper.innerHTML = `<div class="message-text-content">${this.escapeHtml(nextText).replace(/\n/g, '<br>')}</div>`;
+                display.prepend(wrapper);
+            }
+        }
+
+        const timeNode = messageElement.querySelector('.message-time');
+        if (timeNode && message.created_at) {
+            timeNode.textContent = this.formatMessageTime(message.created_at);
+        }
+    }
+
+    removeMessageById(messageId) {
+        const id = parseInt(messageId || '0', 10) || 0;
+        if (!this.chatMessages || id <= 0) {
+            return;
+        }
+        const target = this.chatMessages.querySelector(`[data-message-id="${id}"]`);
+        if (target) {
+            target.remove();
+        }
+    }
+
+    renderRealtimeMessageHtml(message) {
+        const isOwn = this.sessionUserId > 0 && parseInt(message.user_id || '0', 10) === this.sessionUserId;
+        const wrapperClass = isOwn ? 'message own-message' : 'message';
+        const avatar = message.profile_picture
+            ? `<img src="/uploads/${encodeURIComponent(message.profile_picture)}" alt="Photo profil">`
+            : `<span class="avatar-fallback">${this.escapeHtml(this.firstChar(message.username || '?'))}</span>`;
+
+        const text = (message.message || '').trim();
+        const textBlock = text
+            ? `<div class="message-text"><div class="message-text-content">${this.escapeHtml(text).replace(/\n/g, '<br>')}</div></div>`
+            : '';
+
+        const fileBlock = this.renderRealtimeFileBlock(message);
+        const messageTime = this.formatMessageTime(message.created_at || '');
+
+        return `
+            <div class="${wrapperClass}" data-message-id="${parseInt(message.id || '0', 10) || 0}">
+                <div class="message-avatar">${avatar}</div>
+                <div class="message-content">
+                    <div class="message-display">
+                        ${textBlock}
+                        ${fileBlock}
+                        <div class="message-meta-time"><span class="message-time">${this.escapeHtml(messageTime)}</span></div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    renderRealtimeFileBlock(message) {
+        const fileId = parseInt(message.file_id || '0', 10) || 0;
+        if (fileId <= 0 || !this.downloadUrlTemplate) {
+            return '';
+        }
+
+        const fileName = this.escapeHtml(message.original_name || 'Fichier');
+        const downloadUrl = this.downloadUrlTemplate.replace('__ID__', String(fileId));
+
+        if ((message.file_type || '').startsWith('image/') && this.viewUrlTemplate) {
+            const viewUrl = this.viewUrlTemplate.replace('__ID__', String(fileId));
+            return `
+                <div class="message-file image-file">
+                    <button type="button" class="image-thumb-btn" data-image-src="${viewUrl}" data-image-name="${fileName}" data-download-url="${downloadUrl}" title="Agrandir l'image">
+                        <img src="${viewUrl}" alt="${fileName}" class="image-thumb" loading="lazy">
+                    </button>
+                    <a href="${downloadUrl}" class="download-btn" title="Télécharger">⬇</a>
+                </div>
+            `;
+        }
+
+        return `
+            <div class="message-file">
+                <div class="file-icon">📁</div>
+                <a href="${downloadUrl}" class="download-btn" title="Télécharger">⬇</a>
+            </div>
+        `;
+    }
+
+    formatMessageTime(raw) {
+        const text = String(raw || '').trim();
+        if (!text) {
+            return '';
+        }
+
+        const parts = text.split(' ');
+        if (parts.length > 1) {
+            return parts[1].slice(0, 5);
+        }
+        if (text.includes('T')) {
+            return text.split('T')[1].slice(0, 5);
+        }
+        return text.slice(11, 16);
+    }
+
+    firstChar(value) {
+        const text = String(value || '').trim();
+        return text ? text[0].toUpperCase() : '?';
     }
 
     bindMessageEditing() {
@@ -440,6 +701,12 @@ class JemiChatUI {
                 event.preventDefault();
                 return;
             }
+
+            if (!hasFile && hasMessage && this.wsReady && this.sendMessageViaWebSocket()) {
+                event.preventDefault();
+                return;
+            }
+
             const submitBtn = this.form.querySelector('.composer-icon-btn.send');
             if (submitBtn) {
                 submitBtn.disabled = true;
@@ -552,9 +819,8 @@ class JemiChatUI {
     }
 
     scrollChatToBottom() {
-        const chatMessages = document.getElementById('chatMessages');
-        if (chatMessages) {
-            chatMessages.scrollTop = chatMessages.scrollHeight;
+        if (this.chatMessages) {
+            this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
         }
     }
 }
