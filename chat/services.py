@@ -4,8 +4,6 @@ import threading
 from datetime import datetime, timedelta
 
 import bcrypt
-from asgiref.sync import async_to_sync
-from channels.layers import get_channel_layer
 from django.conf import settings
 from django.db import connection, transaction
 
@@ -881,37 +879,6 @@ def get_or_create_direct_conversation(current_user_id, target_user_id):
             return int(cur.lastrowid)
 
 
-def get_message_payload(message_id):
-    return fetch_one(
-        """
-        SELECT cm.id, cm.conversation_id, cm.user_id, cm.message, cm.file_id, cm.is_ephemeral, cm.expires_at, cm.created_at,
-               u.username, u.profile_picture,
-               f.original_name, f.file_type, f.file_size
-        FROM chat_messages cm
-        JOIN users u ON u.id = cm.user_id
-        LEFT JOIN files f ON f.id = cm.file_id
-        WHERE cm.id = %s
-        LIMIT 1
-        """,
-        [int(message_id)],
-    )
-
-
-def broadcast_chat_event(conversation_id, event_type, payload):
-    channel_layer = get_channel_layer()
-    if channel_layer is None:
-        return
-
-    async_to_sync(channel_layer.group_send)(
-        f'chat_{int(conversation_id)}',
-        {
-            'type': 'chat.event',
-            'event_type': str(event_type),
-            'payload': payload or {},
-        },
-    )
-
-
 def save_upload(uploaded_file, allowed_types=None, max_size=MAX_FILE_SIZE):
     if uploaded_file.size > max_size:
         raise ValueError('Fichier trop volumineux.')
@@ -937,7 +904,7 @@ def save_upload(uploaded_file, allowed_types=None, max_size=MAX_FILE_SIZE):
     }
 
 
-def insert_message(user_id, conversation_id, message, file_meta=None, ephemeral_week=False, broadcast=True):
+def insert_message(user_id, conversation_id, message, file_meta=None, ephemeral_week=False):
     expires_at = (datetime.utcnow() + timedelta(days=7)).strftime('%Y-%m-%d %H:%M:%S') if ephemeral_week else None
 
     with transaction.atomic():
@@ -962,14 +929,7 @@ def insert_message(user_id, conversation_id, message, file_meta=None, ephemeral_
                 """,
                 [int(conversation_id), int(user_id), final_message, file_id, 1 if ephemeral_week else 0, expires_at],
             )
-            message_id = int(cur.lastrowid)
-
-    if broadcast:
-        payload = get_message_payload(message_id)
-        if payload:
-            broadcast_chat_event(conversation_id, 'message.created', payload)
-
-    return message_id
+            return int(cur.lastrowid)
 
 
 def update_own_message(message_id, conversation_id, user_id, new_message):
@@ -984,10 +944,6 @@ def update_own_message(message_id, conversation_id, user_id, new_message):
         )
         updated = cur.rowcount > 0
 
-    if updated:
-        payload = get_message_payload(message_id)
-        if payload:
-            broadcast_chat_event(conversation_id, 'message.updated', payload)
     return updated
 
 
@@ -1021,12 +977,6 @@ def delete_own_message(message_id, conversation_id, user_id):
         path = os.path.join(settings.MEDIA_ROOT, os.path.basename(filename))
         if os.path.isfile(path):
             os.remove(path)
-
-    broadcast_chat_event(
-        conversation_id,
-        'message.deleted',
-        {'id': int(message_id), 'conversation_id': int(conversation_id)},
-    )
 
     return True
 

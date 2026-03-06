@@ -35,14 +35,6 @@ class JemiChatUI {
         this.pollTimer = null;
         this.pollInFlight = false;
         this.lastPolledMessageId = this.getMaxMessageIdFromDom();
-        this.ws = null;
-        this.wsReady = false;
-        this.wsReconnectTimer = null;
-        this.wsReconnectDelayMs = 2000;
-        this.wsClosedByClient = false;
-        this.wsFailureCount = 0;
-        this.wsMaxFailures = 3;
-        this.wsDisabled = false;
 
         this.dragState = {
             active: false,
@@ -66,9 +58,8 @@ class JemiChatUI {
         this.bindEmojiPicker();
         this.bindFileInput();
         this.bindFormValidation();
-        this.initRealtime();
         this.initPolling();
-        this.bindRealtimeCleanup();
+        this.bindPollingCleanup();
         this.scrollChatToBottom();
 
         window.setTimeout(() => {
@@ -240,62 +231,6 @@ class JemiChatUI {
         }, 180);
     }
 
-    initRealtime() {
-        if (this.page !== 'index' || !this.chatMessages || this.activeConversationId <= 0) {
-            return;
-        }
-        if (this.wsDisabled) {
-            return;
-        }
-        if (typeof WebSocket === 'undefined') {
-            return;
-        }
-        if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
-            return;
-        }
-
-        const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-        const wsUrl = `${wsProtocol}://${window.location.host}/ws/chat/${this.activeConversationId}/`;
-        this.ws = new WebSocket(wsUrl);
-        this.wsClosedByClient = false;
-
-        this.ws.addEventListener('open', () => {
-            this.wsReady = true;
-            this.wsFailureCount = 0;
-        });
-
-        this.ws.addEventListener('message', (event) => {
-            this.handleRealtimeMessage(event.data);
-        });
-
-        this.ws.addEventListener('close', () => {
-            this.wsReady = false;
-            this.ws = null;
-            if (!this.wsClosedByClient) {
-                this.wsFailureCount += 1;
-                if (this.wsFailureCount >= this.wsMaxFailures) {
-                    this.wsDisabled = true;
-                    return;
-                }
-                this.scheduleRealtimeReconnect();
-            }
-        });
-
-        this.ws.addEventListener('error', () => {
-            this.wsReady = false;
-        });
-    }
-
-    scheduleRealtimeReconnect() {
-        if (this.wsReconnectTimer || this.page !== 'index') {
-            return;
-        }
-        this.wsReconnectTimer = window.setTimeout(() => {
-            this.wsReconnectTimer = null;
-            this.initRealtime();
-        }, this.wsReconnectDelayMs);
-    }
-
     initPolling() {
         if (this.page !== 'index' || !this.chatMessages || this.activeConversationId <= 0 || !this.pollUrl) {
             return;
@@ -315,10 +250,6 @@ class JemiChatUI {
 
     pollMessages() {
         if (this.pollInFlight || this.page !== 'index') {
-            this.schedulePolling();
-            return;
-        }
-        if (this.wsReady) {
             this.schedulePolling();
             return;
         }
@@ -374,81 +305,13 @@ class JemiChatUI {
             });
     }
 
-    bindRealtimeCleanup() {
+    bindPollingCleanup() {
         window.addEventListener('beforeunload', () => {
-            this.wsClosedByClient = true;
             if (this.pollTimer) {
                 window.clearTimeout(this.pollTimer);
                 this.pollTimer = null;
             }
-            if (this.wsReconnectTimer) {
-                window.clearTimeout(this.wsReconnectTimer);
-                this.wsReconnectTimer = null;
-            }
-            if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
-                this.ws.close();
-            }
         });
-    }
-
-    handleRealtimeMessage(rawPayload) {
-        let data = {};
-        try {
-            data = JSON.parse(rawPayload || '{}');
-        } catch (error) {
-            return;
-        }
-
-        const type = data.type || '';
-        const payload = data.payload || {};
-
-        if (type === 'message.created') {
-            this.upsertMessage(payload, false);
-            return;
-        }
-        if (type === 'message.updated') {
-            this.upsertMessage(payload, true);
-            return;
-        }
-        if (type === 'message.deleted') {
-            this.removeMessageById(payload.id);
-            return;
-        }
-        if (type === 'error') {
-            window.alert(data.error || "Erreur WebSocket.");
-        }
-    }
-
-    sendMessageViaWebSocket() {
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.messageInput) {
-            return false;
-        }
-
-        const message = (this.messageInput.value || '').trim();
-        if (!message) {
-            return false;
-        }
-
-        const ephemeralCheckbox = document.getElementById('ephemeralWeek');
-        try {
-            this.ws.send(
-                JSON.stringify({
-                    action: 'send_message',
-                    message: message,
-                    ephemeral_week: !!(ephemeralCheckbox && ephemeralCheckbox.checked),
-                })
-            );
-        } catch (error) {
-            return false;
-        }
-
-        this.messageInput.value = '';
-        if (ephemeralCheckbox) {
-            ephemeralCheckbox.checked = false;
-        }
-        this.removeFilePreview();
-        this.closeComposer();
-        return true;
     }
 
     upsertMessage(message, onlyIfExists) {
@@ -854,11 +717,6 @@ class JemiChatUI {
             const hasMessage = this.messageInput && this.messageInput.value.trim().length > 0;
 
             if (!hasFile && !hasMessage) {
-                event.preventDefault();
-                return;
-            }
-
-            if (!hasFile && hasMessage && this.wsReady && this.sendMessageViaWebSocket()) {
                 event.preventDefault();
                 return;
             }
