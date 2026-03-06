@@ -3,7 +3,7 @@ import secrets
 
 from django.conf import settings
 from django.contrib import messages
-from django.http import FileResponse, HttpResponse, HttpResponseForbidden
+from django.http import FileResponse, HttpResponse, HttpResponseForbidden, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
@@ -159,6 +159,43 @@ def index_view(request):
         ],
     }
     return render(request, 'chat/index.html', context)
+
+
+@require_GET
+def poll_messages_view(request):
+    if not require_login(request):
+        return JsonResponse({'ok': False, 'error': 'auth_required'}, status=401)
+
+    user_id = int(request.session['user_id'])
+    conversation_id = int(request.GET.get('conversation_id') or 0)
+    after_id = max(0, int(request.GET.get('after_id') or 0))
+    limit = max(1, min(120, int(request.GET.get('limit') or 60)))
+    snapshot_limit = max(20, min(300, int(request.GET.get('snapshot_limit') or 200)))
+
+    if conversation_id <= 0:
+        return JsonResponse({'ok': False, 'error': 'conversation_id_invalide'}, status=400)
+
+    if not services.get_conversation_for_user(conversation_id, user_id):
+        return JsonResponse({'ok': False, 'error': 'conversation_interdite'}, status=403)
+
+    new_messages = services.get_conversation_messages_after_id(conversation_id, after_id, limit)
+    snapshot_messages = list(reversed(services.get_conversation_messages(conversation_id, snapshot_limit)))
+    last_id = after_id
+    for item in new_messages:
+        msg_id = int(item.get('id') or 0)
+        if msg_id > last_id:
+            last_id = msg_id
+
+    return JsonResponse(
+        {
+            'ok': True,
+            'conversation_id': conversation_id,
+            'after_id': after_id,
+            'last_id': last_id,
+            'messages': new_messages,
+            'snapshot_messages': snapshot_messages,
+        }
+    )
 
 
 @require_POST

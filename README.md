@@ -40,6 +40,7 @@ http://localhost:8000/index.php
 - Authentification compatible avec les hashes mot de passe PHP (`bcrypt`, conversion `$2y$` -> `$2b$` côté vérification).
 - Les WebSockets passent par l'ASGI app (`jemichat/asgi.py`) et un consumer `chat/consumers.py`.
 - `CHANNEL_LAYERS` est configuré en mémoire (`InMemoryChannelLayer`) pour le dev local.
+- Compatibilité WSGI: le frontend active un **polling HTTP** (`poll_messages.php`) quand WebSocket est indisponible, avec synchronisation des nouveaux messages et des modifications/suppressions recentes.
 
 ## Reset des donnees SQL
 

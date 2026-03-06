@@ -65,6 +65,7 @@
             class="chat-messages"
             id="chatMessages"
             data-conversation-id="{{ active_conversation_id }}"
+            data-poll-url="{% url 'poll_messages_php' %}"
             data-download-url-template="{% url 'download_php' %}?id=__ID__"
             data-view-url-template="{% url 'view_file_php' %}?id=__ID__"
         >

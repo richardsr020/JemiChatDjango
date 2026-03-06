@@ -27,13 +27,22 @@ class JemiChatUI {
         this.activeConversationId = this.chatMessages
             ? parseInt(this.chatMessages.dataset.conversationId || '0', 10) || 0
             : 0;
+        this.pollUrl = this.chatMessages ? this.chatMessages.dataset.pollUrl || '' : '';
         this.downloadUrlTemplate = this.chatMessages ? this.chatMessages.dataset.downloadUrlTemplate || '' : '';
         this.viewUrlTemplate = this.chatMessages ? this.chatMessages.dataset.viewUrlTemplate || '' : '';
+        this.pollIntervalMs = 2000;
+        this.pollSnapshotLimit = 200;
+        this.pollTimer = null;
+        this.pollInFlight = false;
+        this.lastPolledMessageId = this.getMaxMessageIdFromDom();
         this.ws = null;
         this.wsReady = false;
         this.wsReconnectTimer = null;
         this.wsReconnectDelayMs = 2000;
         this.wsClosedByClient = false;
+        this.wsFailureCount = 0;
+        this.wsMaxFailures = 3;
+        this.wsDisabled = false;
 
         this.dragState = {
             active: false,
@@ -58,6 +67,7 @@ class JemiChatUI {
         this.bindFileInput();
         this.bindFormValidation();
         this.initRealtime();
+        this.initPolling();
         this.bindRealtimeCleanup();
         this.scrollChatToBottom();
 
@@ -234,6 +244,9 @@ class JemiChatUI {
         if (this.page !== 'index' || !this.chatMessages || this.activeConversationId <= 0) {
             return;
         }
+        if (this.wsDisabled) {
+            return;
+        }
         if (typeof WebSocket === 'undefined') {
             return;
         }
@@ -248,6 +261,7 @@ class JemiChatUI {
 
         this.ws.addEventListener('open', () => {
             this.wsReady = true;
+            this.wsFailureCount = 0;
         });
 
         this.ws.addEventListener('message', (event) => {
@@ -258,6 +272,11 @@ class JemiChatUI {
             this.wsReady = false;
             this.ws = null;
             if (!this.wsClosedByClient) {
+                this.wsFailureCount += 1;
+                if (this.wsFailureCount >= this.wsMaxFailures) {
+                    this.wsDisabled = true;
+                    return;
+                }
                 this.scheduleRealtimeReconnect();
             }
         });
@@ -277,9 +296,95 @@ class JemiChatUI {
         }, this.wsReconnectDelayMs);
     }
 
+    initPolling() {
+        if (this.page !== 'index' || !this.chatMessages || this.activeConversationId <= 0 || !this.pollUrl) {
+            return;
+        }
+        this.schedulePolling();
+    }
+
+    schedulePolling() {
+        if (this.pollTimer) {
+            return;
+        }
+        this.pollTimer = window.setTimeout(() => {
+            this.pollTimer = null;
+            this.pollMessages();
+        }, this.pollIntervalMs);
+    }
+
+    pollMessages() {
+        if (this.pollInFlight || this.page !== 'index') {
+            this.schedulePolling();
+            return;
+        }
+        if (this.wsReady) {
+            this.schedulePolling();
+            return;
+        }
+        if (!this.pollUrl || this.activeConversationId <= 0) {
+            this.schedulePolling();
+            return;
+        }
+
+        const params = new URLSearchParams({
+            conversation_id: String(this.activeConversationId),
+            after_id: String(this.lastPolledMessageId),
+            limit: '60',
+            snapshot_limit: String(this.pollSnapshotLimit)
+        });
+        this.pollInFlight = true;
+
+        fetch(`${this.pollUrl}?${params.toString()}`, {
+            method: 'GET',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            credentials: 'same-origin'
+        })
+            .then((response) => {
+                if (!response.ok) {
+                    throw new Error('poll_failed');
+                }
+                return response.json();
+            })
+            .then((data) => {
+                if (!data || !data.ok || !Array.isArray(data.messages)) {
+                    return;
+                }
+
+                data.messages.forEach((message) => {
+                    this.upsertMessage(message, false);
+                    const currentId = parseInt((message || {}).id || '0', 10) || 0;
+                    if (currentId > this.lastPolledMessageId) {
+                        this.lastPolledMessageId = currentId;
+                    }
+                });
+
+                if (Array.isArray(data.snapshot_messages)) {
+                    this.reconcileSnapshotMessages(data.snapshot_messages);
+                }
+            })
+            .catch(() => {
+                // Keep retrying silently.
+            })
+            .finally(() => {
+                this.pollInFlight = false;
+                this.schedulePolling();
+            });
+    }
+
     bindRealtimeCleanup() {
         window.addEventListener('beforeunload', () => {
             this.wsClosedByClient = true;
+            if (this.pollTimer) {
+                window.clearTimeout(this.pollTimer);
+                this.pollTimer = null;
+            }
+            if (this.wsReconnectTimer) {
+                window.clearTimeout(this.wsReconnectTimer);
+                this.wsReconnectTimer = null;
+            }
             if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
                 this.ws.close();
             }
@@ -351,6 +456,9 @@ class JemiChatUI {
         if (!this.chatMessages || messageId <= 0) {
             return;
         }
+        if (messageId > this.lastPolledMessageId) {
+            this.lastPolledMessageId = messageId;
+        }
 
         const selector = `[data-message-id="${messageId}"]`;
         const existing = this.chatMessages.querySelector(selector);
@@ -396,6 +504,39 @@ class JemiChatUI {
         if (target) {
             target.remove();
         }
+    }
+
+    reconcileSnapshotMessages(snapshotMessages) {
+        if (!this.chatMessages) {
+            return;
+        }
+
+        const snapshotIds = new Set();
+        let minSnapshotId = 0;
+
+        snapshotMessages.forEach((message) => {
+            const id = parseInt((message || {}).id || '0', 10) || 0;
+            if (id <= 0) {
+                return;
+            }
+            snapshotIds.add(id);
+            if (minSnapshotId === 0 || id < minSnapshotId) {
+                minSnapshotId = id;
+            }
+            this.upsertMessage(message, false);
+        });
+
+        if (minSnapshotId === 0) {
+            this.chatMessages.querySelectorAll('.message[data-message-id]').forEach((node) => node.remove());
+            return;
+        }
+
+        this.chatMessages.querySelectorAll('.message[data-message-id]').forEach((node) => {
+            const id = parseInt(node.getAttribute('data-message-id') || '0', 10) || 0;
+            if (id >= minSnapshotId && !snapshotIds.has(id)) {
+                node.remove();
+            }
+        });
     }
 
     renderRealtimeMessageHtml(message) {
@@ -475,6 +616,21 @@ class JemiChatUI {
     firstChar(value) {
         const text = String(value || '').trim();
         return text ? text[0].toUpperCase() : '?';
+    }
+
+    getMaxMessageIdFromDom() {
+        if (!this.chatMessages) {
+            return 0;
+        }
+
+        let maxId = 0;
+        this.chatMessages.querySelectorAll('.message[data-message-id]').forEach((node) => {
+            const value = parseInt(node.getAttribute('data-message-id') || '0', 10) || 0;
+            if (value > maxId) {
+                maxId = value;
+            }
+        });
+        return maxId;
     }
 
     bindMessageEditing() {

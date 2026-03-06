@@ -805,6 +805,22 @@ def get_conversation_messages(conversation_id, limit=100):
     )
 
 
+def get_conversation_messages_after_id(conversation_id, after_id=0, limit=60):
+    return fetch_all(
+        """
+        SELECT cm.*, u.username, u.profile_picture, f.original_name, f.file_type, f.file_size
+        FROM chat_messages cm
+        JOIN users u ON cm.user_id = u.id
+        LEFT JOIN files f ON cm.file_id = f.id
+        WHERE cm.conversation_id = %s
+          AND cm.id > %s
+        ORDER BY cm.id ASC
+        LIMIT %s
+        """,
+        [int(conversation_id), int(after_id), int(limit)],
+    )
+
+
 def get_online_users():
     return fetch_all(
         """

@@ -12,6 +12,7 @@ urlpatterns = [
     path('register.php', views.register_view, name='register_php'),
     path('logout.php', views.logout_view, name='logout_php'),
     path('send_message.php', views.send_message_view, name='send_message_php'),
+    path('poll_messages.php', views.poll_messages_view, name='poll_messages_php'),
     path('edit_message.php', views.edit_message_view, name='edit_message_php'),
     path('delete_message.php', views.delete_message_view, name='delete_message_php'),
     path('upload.php', views.upload_view, name='upload_php'),
